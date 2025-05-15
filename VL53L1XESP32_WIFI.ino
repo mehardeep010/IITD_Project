@@ -1,64 +1,85 @@
-/*
- *  This sketch demonstrates how to scan WiFi networks.
- *  The API is based on the Arduino WiFi Shield library, but has significant changes as newer WiFi functions are supported.
- *  E.g. the return value of `encryptionType()` different because more modern encryption is supported.
- */
-#include "WiFi.h"
+#include <WiFi.h>
+#include <Wire.h>
+#include <VL53L1X.h>
+#include <WebServer.h>
+
+VL53L1X sensor;
+const int ledPin = 2;
+const int triggerDistance = 200; // 200 mm = 20 cm
+
+// WiFi credentials
+const char* ssid = "Redmi Note 13 5G";
+const char* password = "abc123xyzmds";
+
+// Web server on port 80
+WebServer server(80);
+
+// Variable to hold latest distance
+int distance = 0;
+
+// Serve the HTML page
+void handleRoot() {
+  String html = "<!DOCTYPE html><html><head><meta http-equiv='refresh' content='1'/><title>VL53L1X Distance</title></head><body>";
+  html += "<h1>VL53L1X Sensor</h1>";
+  html += "<p>Distance: " + String(distance) + " mm</p>";
+  html += "</body></html>";
+  server.send(200, "text/html", html);
+}
+
+void connectToWiFi() {
+  Serial.print("Connecting to WiFi");
+  WiFi.begin(ssid, password);
+  int retries = 0;
+  while (WiFi.status() != WL_CONNECTED && retries < 20) {
+    delay(500);
+    Serial.print(".");
+    retries++;
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println();
+    Serial.print("Connected! IP address: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("\nFailed to connect to WiFi.");
+  }
+}
 
 void setup() {
   Serial.begin(115200);
+  Wire.begin(21, 22); // SDA, SCL
+  pinMode(ledPin, OUTPUT);
+  digitalWrite(ledPin, LOW);
 
-  // Set WiFi to station mode and disconnect from an AP if it was previously connected.
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
-  delay(100);
+  // Connect to Wi-Fi
+  connectToWiFi();
 
-  Serial.println("Setup done");
+  // Start web server
+  server.on("/", handleRoot);
+  server.begin();
+
+  // Initialize the VL53L1X sensor
+  sensor.setTimeout(500);
+  if (!sensor.init()) {
+    Serial.println("Sensor not detected!");
+    while (1);
+  }
+
+  sensor.setDistanceMode(VL53L1X::Long);
+  sensor.setMeasurementTimingBudget(50000);
+  sensor.startContinuous(50);
 }
 
 void loop() {
-  Serial.println("Scan start");
+  distance = sensor.read();
 
-  // WiFi.scanNetworks will return the number of networks found.
-  int n = WiFi.scanNetworks();
-  Serial.println("Scan done");
-  if (n == 0) {
-    Serial.println("no networks found");
+  if (distance > 0 && distance < triggerDistance) {
+    digitalWrite(ledPin, HIGH);
   } else {
-    Serial.print(n);
-    Serial.println(" networks found");
-    Serial.println("Nr | SSID                             | RSSI | CH | Encryption");
-    for (int i = 0; i < n; ++i) {
-      // Print SSID and RSSI for each network found
-      Serial.printf("%2d", i + 1);
-      Serial.print(" | ");
-      Serial.printf("%-32.32s", WiFi.SSID(i).c_str());
-      Serial.print(" | ");
-      Serial.printf("%4ld", WiFi.RSSI(i));
-      Serial.print(" | ");
-      Serial.printf("%2ld", WiFi.channel(i));
-      Serial.print(" | ");
-      switch (WiFi.encryptionType(i)) {
-        case WIFI_AUTH_OPEN:            Serial.print("open"); break;
-        case WIFI_AUTH_WEP:             Serial.print("WEP"); break;
-        case WIFI_AUTH_WPA_PSK:         Serial.print("WPA"); break;
-        case WIFI_AUTH_WPA2_PSK:        Serial.print("WPA2"); break;
-        case WIFI_AUTH_WPA_WPA2_PSK:    Serial.print("WPA+WPA2"); break;
-        case WIFI_AUTH_WPA2_ENTERPRISE: Serial.print("WPA2-EAP"); break;
-        case WIFI_AUTH_WPA3_PSK:        Serial.print("WPA3"); break;
-        case WIFI_AUTH_WPA2_WPA3_PSK:   Serial.print("WPA2+WPA3"); break;
-        case WIFI_AUTH_WAPI_PSK:        Serial.print("WAPI"); break;
-        default:                        Serial.print("unknown");
-      }
-      Serial.println();
-      delay(10);
-    }
+    digitalWrite(ledPin, LOW);
   }
-  Serial.println("");
 
-  // Delete the scan result to free memory for code below.
-  WiFi.scanDelete();
+  server.handleClient(); // Handle web requests
 
-  // Wait a bit before scanning again.
-  delay(5000);
+  delay(100);
 }
