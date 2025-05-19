@@ -1,29 +1,39 @@
 #include <WiFi.h>
-#include <ESP32Servo.h>
 
-Servo esc_signal;
-int speedValue = 1000;
+#define ESC_PIN 13
+#define ESC_PWM_CHANNEL 0
+#define ESC_PWM_FREQ 50 // 50 Hz for servo/ESC control
+#define ESC_PWM_RESOLUTION 16 // 16-bit resolution (0 - 65535)
 
+int speedValue = 1000; // microseconds
+WiFiServer server(80);
+
+// Replace with your WiFi credentials
 const char* ssid = "Galaxy F23 5G5C9C";
 const char* password = "sbgj0799";
 
-WiFiServer server(80);
+// Convert microseconds (1000-2000) to PWM duty cycle
+int microsecondsToDuty(int us) {
+  // 5% of 65535 = ~3276, 10% = ~6553
+  return map(us, 1000, 2000, 3276, 6553);
+}
 
 void setup() {
   Serial.begin(115200);
 
-  esc_signal.setPeriodHertz(50);
-  esc_signal.attach(13, 1000, 2000); // PWM pin 13
-  esc_signal.writeMicroseconds(1000); // Arm ESC
-  delay(3000);
+  // PWM setup
+  ledcSetup(ESC_PWM_CHANNEL, ESC_PWM_FREQ, ESC_PWM_RESOLUTION);
+  ledcAttachPin(ESC_PIN, ESC_PWM_CHANNEL);
+  ledcWrite(ESC_PWM_CHANNEL, microsecondsToDuty(1000)); // Arm ESC at min throttle
+  delay(3000); // ESC arming delay
 
+  // WiFi setup
   Serial.println("Connecting to WiFi...");
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
-
   Serial.println("\nWiFi connected.");
   Serial.print("IP Address: ");
   Serial.println(WiFi.localIP());
@@ -45,7 +55,7 @@ void loop() {
         request += c;
         if (c == '\n') {
           if (currentLine.length() == 0) {
-            // Send web page with slider
+            // Send web page
             client.println("HTTP/1.1 200 OK");
             client.println("Content-type:text/html");
             client.println("Connection: close");
@@ -57,7 +67,6 @@ void loop() {
             client.println("<p>Speed: <span id='val'>" + String(speedValue) + "</span></p>");
             client.println("<br><a href=\"/stop\">Stop Motor</a>");
 
-            // JavaScript to send GET request and update value display
             client.println("<script>");
             client.println("function setSpeed(val) {");
             client.println("document.getElementById('val').innerText = val;");
@@ -79,7 +88,7 @@ void loop() {
       }
     }
 
-    // Handle slider speed setting
+    // Handle speed set
     if (request.indexOf("GET /set?speed=") >= 0) {
       int index = request.indexOf("speed=") + 6;
       int endIndex = request.indexOf(" ", index);
@@ -87,13 +96,13 @@ void loop() {
       speedValue = valueStr.toInt();
       if (speedValue >= 40 && speedValue <= 130) {
         int pulse = map(speedValue, 40, 130, 1000, 2000);
-        esc_signal.writeMicroseconds(pulse);
+        ledcWrite(ESC_PWM_CHANNEL, microsecondsToDuty(pulse));
         Serial.printf("Speed set to %d (PWM: %d µs)\n", speedValue, pulse);
       }
     }
 
     if (request.indexOf("GET /stop") >= 0) {
-      esc_signal.writeMicroseconds(1000);
+      ledcWrite(ESC_PWM_CHANNEL, microsecondsToDuty(1000));
       Serial.println("Motor stopped.");
     }
 
