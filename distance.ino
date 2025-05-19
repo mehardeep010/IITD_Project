@@ -3,8 +3,8 @@
 
 VL53L1X sensor;
 
-const int SDA_PIN = 8;      // Change if needed
-const int SCL_PIN = 9;      // Change if needed
+const int SDA_PIN = 6;      // Change if needed
+const int SCL_PIN = 7;      // Change if needed
 const int ALERT_PIN = 2;    // GPIO for output alert (LED/Buzzer)
 
 void setup() {
